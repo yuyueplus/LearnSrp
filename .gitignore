@@ -1,0 +1,11 @@
+/Library
+/Temp
+/.vs
+/.idea
+/obj
+/UnityPackageManager
+/Logs
+/.gradle
+/*.csproj
+/Build
+/.vsconfig
