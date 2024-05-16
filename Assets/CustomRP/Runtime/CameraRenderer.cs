@@ -1,65 +1,34 @@
 ﻿using UnityEngine;
 using UnityEngine.Rendering;
 
-public class CameraRenderer{
+public partial class CameraRenderer {
     private ScriptableRenderContext context;
 
     private Camera camera;
 
     private const string bufferName = "Render Camera";
 
-    private CommandBuffer buffer = new CommandBuffer{
+    private CommandBuffer buffer = new CommandBuffer {
         name = bufferName
     };
 
-    //SRP不支持的着色器标签类型
-    private static ShaderTagId[] legacyShaderTagIds ={
-        new ShaderTagId("Always"),
-        new ShaderTagId("ForwardBase"),
-        new ShaderTagId("PrepassBase"),
-        new ShaderTagId("Vertex"),
-        new ShaderTagId("VertexLMRGBM"),
-        new ShaderTagId("VertexLM"),
-    };
-
-    public void Render(ScriptableRenderContext context, Camera camera){
+    public void Render(ScriptableRenderContext context, Camera camera) {
         this.context = context;
         this.camera = camera;
 
-        if (!Cull()){
+        PrepareForSceneWindow();
+        
+        if (!Cull()) {
             return;
         }
-        
+
         Setup();
         DrawVisibleGeometry();
+#if UNITY_EDITOR
         DrawUnsupportedShader();
+        DrawGizmos();
+#endif
         Submit();
-    }
-
-    //绘制成使用错误材质的粉红颜色2
-    private static Material errorMaterial;
-    
-    /// <summary>
-    /// 绘制SRP不支持的着色器类型
-    /// </summary>
-    private void DrawUnsupportedShader(){
-        //不支持的ShaderTag类型使用错误材质专用Shader来绘制(粉色)
-        if (errorMaterial == null){
-            errorMaterial = new Material(Shader.Find("Hidden/InternalErrorShader"));
-        }
-        
-        //数组第一个元素用来构造DrawingSetting对象的时候设置
-        var drawSettings = new DrawingSettings(legacyShaderTagIds[0], new SortingSettings(camera)){
-            overrideMaterial = errorMaterial
-        };
-        for (int i = 1; i < legacyShaderTagIds.Length; i++){
-            //遍历数组逐个设置着色器的PassName
-            drawSettings.SetShaderPassName(i, legacyShaderTagIds[i]);
-        }
-        //使用默认设置即可，反正画出来的都是不支持的
-        var filteringSettings = FilteringSettings.defaultValue;
-        //绘制不支持的ShaderTag类型的物体
-        context.DrawRenderers(cullingResults, ref drawSettings, ref filteringSettings);
     }
 
     //存储剔除后的结果数据
@@ -67,9 +36,9 @@ public class CameraRenderer{
 
     private static ShaderTagId unlitShaderTagId = new ShaderTagId("SRPDefaultUnlit");
 
-    bool Cull(){
+    bool Cull() {
         ScriptableCullingParameters p;
-        if (camera.TryGetCullingParameters(out p)){
+        if (camera.TryGetCullingParameters(out p)) {
             cullingResults = context.Cull(ref p);
             return true;
         }
@@ -77,16 +46,22 @@ public class CameraRenderer{
         return false;
     }
 
-    private void Setup(){
+    private void Setup() {
         context.SetupCameraProperties(camera);
-        buffer.BeginSample(bufferName);
-        buffer.ClearRenderTarget(true, true, Color.clear);
+        buffer.BeginSample(SampleName);
+        CameraClearFlags flags = camera.clearFlags;
+        //设置相机清除状态
+        buffer.ClearRenderTarget(
+            flags <= CameraClearFlags.Depth,
+            flags == CameraClearFlags.Color,
+            flags == CameraClearFlags.Color ? camera.backgroundColor.linear : Color.clear
+        );
         ExecuteBuffer();
     }
-    
-    private void DrawVisibleGeometry(){
+
+    private void DrawVisibleGeometry() {
         //设置绘制顺序和指定渲染相机
-        var sortingSetting = new SortingSettings(camera){
+        var sortingSetting = new SortingSettings(camera) {
             criteria = SortingCriteria.CommonOpaque
         };
         //设置渲染的Shader Pass和排序模式
@@ -98,7 +73,7 @@ public class CameraRenderer{
 
         //2.绘制天空盒
         context.DrawSkybox(camera);
- 
+
         sortingSetting.criteria = SortingCriteria.CommonTransparent;
         drawingSettings.sortingSettings = sortingSetting;
         //只绘制RenderQueue为Transparent透明的物体
@@ -107,13 +82,13 @@ public class CameraRenderer{
         context.DrawRenderers(cullingResults, ref drawingSettings, ref filteringSettings);
     }
 
-    private void Submit(){
-        buffer.EndSample(bufferName);
+    private void Submit() {
+        buffer.EndSample(SampleName);
         ExecuteBuffer();
         context.Submit();
     }
 
-    private void ExecuteBuffer(){
+    private void ExecuteBuffer() {
         context.ExecuteCommandBuffer(buffer);
         buffer.Clear();
     }
